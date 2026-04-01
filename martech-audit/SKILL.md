@@ -278,16 +278,23 @@ These are the **highest-value findings for bizdev** — a JavaScript error silen
 
 #### Step 4: Detect server-side vs client-side tagging
 
-Analyze the network request URLs to determine the tagging architecture:
+Check **both** the JS eval output (`serverSideGtm` field) AND network request URLs:
+
+**From the JS eval (`serverSideGtm` field):**
+The eval script detects sGTM by checking if the GTM bootstrap snippet's `src` points to a non-Google domain. This catches **Stape's obfuscated loader pattern** — where the GTM script loads from a first-party domain (e.g., `tags.example.com/xZfzofixhj.js`) with a randomized filename and base64-encoded container ID instead of the standard `www.googletagmanager.com/gtm.js?id=GTM-XXXXX`. If `serverSideGtm.detected` is true, report the domain and whether the loader is obfuscated.
+
+**From network requests (runtime only):**
 
 | Pattern | Interpretation |
 |---------|---------------|
 | Requests to `www.googletagmanager.com/gtm.js` | Client-side GTM (standard) |
-| Requests to `custom-domain.com/gtm.js` | Server-side GTM via custom domain |
+| Requests to `custom-domain.com/gtm.js` or randomized filename | Server-side GTM via custom domain |
 | GA4 collect requests to `google-analytics.com/g/collect` | Client-side GA4 collection |
 | GA4 collect requests to `custom-domain.com/g/collect` or proxied paths | Server-side GA4 collection |
 | Both custom-domain AND google-analytics.com requests | Hybrid (server-side + client fallback) |
 | `sst.` parameters in GA4 collect URLs (e.g., `sst.tft=`, `sst.lpc=`) | Confirms server-side tagging is active |
+
+**Static analysis note:** sGTM can be partially detected from HTML alone — the GTM snippet's `src` URL reveals the domain. But verifying that GA4 collect requests actually route through the sGTM endpoint requires runtime network inspection. If the eval script reports `serverSideGtm.detected: true` but you can't verify collect routing, note "sGTM loader detected (first-party domain: X), collect routing not verified."
 
 Server-side tagging is a **significant positive** — it improves data quality, bypasses ad blockers, and enables better consent handling. Call it out prominently when found.
 

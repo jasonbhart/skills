@@ -97,6 +97,65 @@
     doubleTagging: (firstPartyHardcodedGtag || firstPartyHardcodedGoogleTag) && firstPartyGtmIds.length > 0,
   };
 
+  // Server-side GTM detection — catches Stape, Addingwell, and custom sGTM setups.
+  // Key insight: sGTM replaces the GTM snippet's script src domain from
+  // www.googletagmanager.com to a first-party domain. Stape also randomizes the
+  // script filename (not gtm.js) and base64-encodes the container ID in URL params.
+  r.serverSideGtm = (() => {
+    // Find the GTM bootstrap script — it pushes gtm.start to dataLayer and creates
+    // a script element. Check if its src points to a non-Google domain.
+    const gtmBootstrap = topLevelScripts.find(s => {
+      const text = s.innerHTML || '';
+      return text.includes('gtm.start') && text.includes('gtm.js');
+    });
+    if (!gtmBootstrap) return { detected: false };
+
+    const text = gtmBootstrap.innerHTML || '';
+    // Extract the script src URL from the GTM snippet
+    // Standard: j.src='https://www.googletagmanager.com/gtm.js?id='+i
+    // Stape: j.src='https://tags.domain.com/xZfzofixhj.js?'+i
+    const srcMatch = text.match(/\.src\s*=\s*['"]([^'"]+)['"]/);
+    if (!srcMatch) return { detected: false };
+
+    const loaderUrl = srcMatch[1];
+    const isFirstParty = !loaderUrl.includes('googletagmanager.com') &&
+                         !loaderUrl.includes('google-analytics.com');
+    if (!isFirstParty) return { detected: false };
+
+    // Extract the sGTM domain
+    let sgtmDomain = null;
+    try { sgtmDomain = new URL(loaderUrl.startsWith('//') ? 'https:' + loaderUrl : loaderUrl).hostname; }
+    catch(e) { sgtmDomain = loaderUrl.split('/')[2] || null; }
+
+    // Check for base64-encoded container ID (Stape pattern).
+    // Stape encodes "id=GTM-XXXX" as base64 in a URL parameter named fX or st.
+    // The param may be URL-encoded (%3D for =) and can appear either in the
+    // .src URL string or in the IIFE call arguments (5th param).
+    let decodedContainerId = null;
+    const fxMatch = text.match(/fX=([A-Za-z0-9+/%]+={0,2})/);
+    if (fxMatch) {
+      try {
+        const decoded = decodeURIComponent(fxMatch[1]);
+        decodedContainerId = atob(decoded);
+      } catch(e) {
+        try { decodedContainerId = atob(fxMatch[1]); } catch(e2) {}
+      }
+    }
+
+    // Check for obfuscated loader filename (not gtm.js)
+    const isObfuscated = !loaderUrl.includes('gtm.js');
+
+    return {
+      detected: true,
+      domain: sgtmDomain,
+      loaderUrl: loaderUrl.substring(0, 120),
+      obfuscatedLoader: isObfuscated,
+      decodedContainerId: decodedContainerId,
+      // Stape-specific: randomized filename + base64 params
+      isStapePattern: isObfuscated && !!fxMatch,
+    };
+  })();
+
   // DataLayer
   r.dataLayer = window.dataLayer ? window.dataLayer.map(item => {
     try { return JSON.parse(JSON.stringify(item)); }
