@@ -1,0 +1,23 @@
+{
+  "skill_name": "martech-audit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "run a martech audit on domainmethods.com",
+      "expected_output": "A scored report identifying: GTM-NMCDP3 container, GA4 G-6FVE8M0KGJ, server-side tagging via tags.domainmethods.com, ConvertKit, Cloudflare analytics, zero custom events, no conversion tracking, no schema markup, no consent management, ghost preconnects for Facebook/LinkedIn/Twitter, blocked B2B script, missing canonical URLs. Overall score around 3/10.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "hey can you check what tracking pixels are on zapier.com? I want to see if they'd be a good prospect for our analytics services",
+      "expected_output": "A full martech audit report for zapier.com with pixel inventory, event tracking assessment, data layer inspection, consent management check, and scoring. Should include bizdev-relevant findings and recommended next steps.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "my client says their GA4 numbers don't match what they see in HubSpot. Can you audit their site at hubspot.com and see if there are any tracking issues?",
+      "expected_output": "A martech audit of hubspot.com focused on GA4 and HubSpot tracking coexistence, identifying any JavaScript errors, consent mode conflicts, or data layer issues that could cause discrepancies. Should flag specific technical reasons for the mismatch.",
+      "files": []
+    }
+  ]
+}
