@@ -1,0 +1,23 @@
+{
+  "skill_name": "seo-audit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "run an SEO audit on domainmethods.com",
+      "expected_output": "A scored report identifying: missing canonical URLs, no JSON-LD schema markup (only Microdata itemtype on html tag), missing search console verification, OG image sameness across pages, Hugo generator detected, proper meta titles and descriptions present, HTTPS working, viewport configured. Overall score around 4-5/10 due to missing canonicals and schema.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "my site isn't showing up in Google, can you check what's wrong? the url is example-saas.com",
+      "expected_output": "A full SEO audit triggered by the casual phrasing. Should follow the complete workflow: scope/crawl, runtime inspection, deterministic analysis, scored report. Should identify common SaaS SEO issues (thin content on feature pages, missing schema, conversion page without noindex on thank-you).",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "check the technical SEO on stripe.com — I want to see how a well-optimized site looks",
+      "expected_output": "A full SEO audit of stripe.com. Should produce mostly positive/info findings with high scores. Should identify: proper canonical tags, comprehensive schema markup, unique OG images, good heading structure. May flag minor issues but overall score should be 7-9/10.",
+      "files": []
+    }
+  ]
+}
