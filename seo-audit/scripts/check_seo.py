@@ -592,6 +592,169 @@ def check_schema_validation(page, all_pages):
     return findings
 
 
+def check_schema_eligibility(page, all_pages):
+    """Google rich result eligibility: required + recommended properties."""
+    findings = []
+    url = page.get("url", "unknown")
+    details = page.get("schemaDetails", [])
+
+    if not details:
+        return findings
+
+    for item in details:
+        types = item.get("types", [])
+        props = item.get("properties", [])
+        type_label = ", ".join(types)
+
+        def _req(check_type, field, display_field=None):
+            """Emit critical finding if required field is missing."""
+            if not any(t.lower() == check_type.lower() for t in types):
+                return
+            if field not in props:
+                fid = f"SCHEMA_{check_type.upper()}_MISSING_REQUIRED_{(display_field or field).upper()}"
+                findings.append({
+                    "id": fid,
+                    "severity": "critical",
+                    "title": f"{type_label} schema missing required '{display_field or field}'",
+                    "detail": (
+                        f"The {type_label} schema is missing the required '{display_field or field}' property. "
+                        f"Without it, this page won't qualify for Google rich results. "
+                        f"See https://developers.google.com/search/docs/appearance/structured-data"
+                    ),
+                    "page": url,
+                })
+
+        def _rec(check_type, field, display_field=None):
+            """Emit moderate finding if recommended field is missing."""
+            if not any(t.lower() == check_type.lower() for t in types):
+                return
+            if field not in props:
+                fid = f"SCHEMA_{check_type.upper()}_MISSING_RECOMMENDED_{(display_field or field).upper()}"
+                findings.append({
+                    "id": fid,
+                    "severity": "moderate",
+                    "title": f"{type_label} schema missing recommended '{display_field or field}'",
+                    "detail": (
+                        f"The {type_label} schema would benefit from adding '{display_field or field}'. "
+                        f"This property improves the quality and appearance of rich results."
+                    ),
+                    "page": url,
+                })
+
+        # Organization / LocalBusiness
+        _req("Organization", "name")
+        _req("Organization", "url")
+        _rec("Organization", "logo")
+        _rec("Organization", "sameAs")
+        _rec("Organization", "contactPoint")
+        _req("LocalBusiness", "name")
+        _req("LocalBusiness", "address")
+        _rec("LocalBusiness", "telephone")
+        _rec("LocalBusiness", "openingHours")
+        _rec("LocalBusiness", "geo")
+
+        # Article / BlogPosting / NewsArticle
+        for article_type in ("Article", "BlogPosting", "NewsArticle"):
+            _req(article_type, "headline")
+            _req(article_type, "author")
+            _req(article_type, "datePublished")
+            _req(article_type, "image")
+            _rec(article_type, "dateModified")
+            _rec(article_type, "publisher")
+            _rec(article_type, "description")
+
+        # Product
+        _req("Product", "name")
+        _req("Product", "offers")
+        _rec("Product", "sku")
+        _rec("Product", "brand")
+        _rec("Product", "aggregateRating")
+        # Product.offers sub-properties
+        if any(t.lower() == "product" for t in types) and "offers" in props:
+            offers_props = item.get("offersProperties", [])
+            if "price" not in offers_props:
+                findings.append({
+                    "id": "SCHEMA_PRODUCT_MISSING_REQUIRED_OFFERS_PRICE",
+                    "severity": "critical",
+                    "title": f"{type_label} offers missing required 'price'",
+                    "detail": "Product.offers must include 'price' for Google rich results.",
+                    "page": url,
+                })
+            if "availability" not in offers_props:
+                findings.append({
+                    "id": "SCHEMA_PRODUCT_MISSING_REQUIRED_OFFERS_AVAILABILITY",
+                    "severity": "critical",
+                    "title": f"{type_label} offers missing required 'availability'",
+                    "detail": "Product.offers must include 'availability' for Google rich results.",
+                    "page": url,
+                })
+            if "priceCurrency" not in offers_props:
+                findings.append({
+                    "id": "SCHEMA_PRODUCT_MISSING_REQUIRED_OFFERS_PRICECURRENCY",
+                    "severity": "moderate",
+                    "title": f"{type_label} offers missing 'priceCurrency'",
+                    "detail": "Product.offers should include 'priceCurrency' for correct price display.",
+                    "page": url,
+                })
+
+        # FAQPage
+        _req("FAQPage", "mainEntity")
+        if any(t.lower() == "faqpage" for t in types) and "mainEntity" in props:
+            if item.get("questionCount", 0) > 0 and not item.get("questionsHaveAnswers", True):
+                findings.append({
+                    "id": "SCHEMA_FAQPAGE_MISSING_REQUIRED_ACCEPTEDANSWER",
+                    "severity": "critical",
+                    "title": "FAQPage questions missing 'acceptedAnswer'",
+                    "detail": "Each Question in FAQPage.mainEntity must have an acceptedAnswer for rich results.",
+                    "page": url,
+                })
+
+        # BreadcrumbList
+        _req("BreadcrumbList", "itemListElement")
+        if any(t.lower() == "breadcrumblist" for t in types) and "itemListElement" in props:
+            if item.get("breadcrumbItemCount", 0) > 0 and not item.get("breadcrumbItemsValid", True):
+                findings.append({
+                    "id": "SCHEMA_BREADCRUMB_MISSING_REQUIRED_ITEM_FIELDS",
+                    "severity": "critical",
+                    "title": "BreadcrumbList items missing position/name/item",
+                    "detail": "Each BreadcrumbList item must have 'position', 'name', and 'item' (URL).",
+                    "page": url,
+                })
+
+        # HowTo (new type)
+        _req("HowTo", "name")
+        _req("HowTo", "step")
+        _rec("HowTo", "image")
+        _rec("HowTo", "totalTime")
+        if any(t.lower() == "howto" for t in types) and "step" in props:
+            if not item.get("stepsHaveNameAndText", True):
+                findings.append({
+                    "id": "SCHEMA_HOWTO_STEPS_MISSING_NAME_OR_TEXT",
+                    "severity": "critical",
+                    "title": "HowTo steps missing name/text",
+                    "detail": "Each HowTo step must have 'name' and 'text', or an 'itemListElement'.",
+                    "page": url,
+                })
+
+        # Event (new type)
+        _req("Event", "name")
+        _req("Event", "startDate")
+        _req("Event", "location")
+        _rec("Event", "endDate")
+        _rec("Event", "image")
+        _rec("Event", "description")
+        _rec("Event", "offers")
+
+        # SoftwareApplication (new type)
+        _req("SoftwareApplication", "name")
+        _req("SoftwareApplication", "offers")
+        _rec("SoftwareApplication", "applicationCategory")
+        _rec("SoftwareApplication", "operatingSystem")
+        _rec("SoftwareApplication", "aggregateRating")
+
+    return findings
+
+
 def check_og_tags(page, all_pages):
     """Missing Open Graph tags."""
     findings = []
@@ -1230,6 +1393,7 @@ PER_PAGE_CHECKS = [
     check_org_schema,
     check_breadcrumb_schema,
     check_schema_validation,
+    check_schema_eligibility,  # NEW
     check_og_tags,
     check_twitter_card,
     check_noindex,
