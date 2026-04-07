@@ -31,10 +31,11 @@ Currently the eval script extracts `@type` and raw JSON-LD objects. Extend it to
 {
   "schemaDetails": [
     {
-      "type": "Product",
+      "types": ["Product"],
       "properties": ["name", "image", "offers", "sku", "brand"],
       "offersProperties": ["price", "availability", "priceCurrency"],
-      "source": "@graph[2]"
+      "source": "@graph[2]",
+      "context": "https://schema.org"
     }
   ]
 }
@@ -134,23 +135,37 @@ Add a new step to Phase 2, run **only on the homepage**, after the existing eval
 
 Extend the existing eval script to identify the LCP candidate and check common problems. This uses the PerformanceObserver API, not the trace.
 
-**New fields in eval output:**
+**Updated fields in eval output:**
+
+The `lcpCandidate` object inside the existing `cwvIndicators` section is upgraded with new fields:
 
 ```json
 {
-  "lcpCandidate": {
-    "element": "img",
-    "selector": "img.hero-banner",
-    "url": "/images/hero.webp",
-    "isLazy": true,
-    "hasFetchpriority": false,
-    "hasPreload": false,
-    "isText": false
-  },
-  "renderBlockingResources": [
-    { "tag": "script", "src": "/js/vendor.js", "hasAsync": false, "hasDefer": false },
-    { "tag": "link", "href": "/css/main.css", "media": "all" }
-  ]
+  "cwvIndicators": {
+    "lcpCandidate": {
+      "element": "img",
+      "selector": "img.hero-banner",
+      "url": "/images/hero.webp",
+      "isLazy": true,
+      "hasFetchpriority": false,
+      "hasPreload": false,
+      "isText": false,
+      "renderTime": 2.8
+    }
+  }
+}
+```
+
+The `resources` section gains a combined `renderBlockingResources` array:
+
+```json
+{
+  "resources": {
+    "renderBlockingResources": [
+      { "tag": "script", "src": "/js/vendor.js", "hasAsync": false, "hasDefer": false },
+      { "tag": "link", "href": "/css/main.css", "media": "all" }
+    ]
+  }
 }
 ```
 
@@ -173,8 +188,7 @@ Add these deterministic checks:
 | `lcp_no_fetchpriority` | moderate | LCP candidate is an image without `fetchpriority="high"` |
 | `lcp_no_preload` | moderate | LCP resource URL has no matching `<link rel="preload">` |
 | `render_blocking_count` | moderate | More than 3 render-blocking resources in `<head>` |
-| `lcp_subparts_bottleneck` | informational | Homepage only: which subpart is the bottleneck, with timing |
-| `lcp_rating` | critical/moderate/info | Homepage only: `poor` = critical, `needs-improvement` = moderate, `good` = informational |
+| `lcp_trace` | critical/moderate | Homepage only: `poor` (>4.0s) = critical, `needs-improvement` (2.5-4.0s) = moderate. Includes bottleneck subpart in finding detail. |
 
 ### 2d. SKILL.md Changes
 
@@ -218,7 +232,7 @@ Update the "Core Web Vitals" or "Performance" category:
 | File | Change |
 |------|--------|
 | `seo-audit/scripts/seo-eval.js` | Add `schemaDetails`, `lcpCandidate`, `renderBlockingResources` fields |
-| `seo-audit/scripts/check_seo.py` | Add `check_schema_eligibility`, `check_lcp_lazy`, `check_lcp_fetchpriority`, `check_lcp_preload`, `check_render_blocking`, `check_lcp_trace` functions |
+| `seo-audit/scripts/check_seo.py` | Add `check_schema_eligibility`, `check_lcp_lazy`, `check_lcp_fetchpriority`, `check_lcp_preload`, `check_render_blocking_count`, `check_lcp_trace` functions |
 | `seo-audit/references/scoring-rubric.md` | Update Schema and Performance scoring criteria |
 | `seo-audit/SKILL.md` | Add LCP trace step to Phase 2, update report template |
 
