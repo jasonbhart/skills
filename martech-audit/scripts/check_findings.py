@@ -33,6 +33,14 @@ def check_double_tagging(page, all_pages):
     ti = page.get("tagInstallations", {})
 
     if ti.get("doubleTagging"):
+        shopify_wp = page.get("shopifyWebPixels", {})
+        shopify_note = ""
+        if shopify_wp.get("detected"):
+            shopify_note = (
+                f" Additionally, {shopify_wp.get('count', 0)} Shopify Web Pixel sandbox(es) detected — "
+                "Shopify fires its own page_view and conversion events independently of both "
+                "hardcoded gtag.js and GTM, likely resulting in TRIPLE-counting, not just double."
+            )
         findings.append({
             "id": "DOUBLE_TAG_GTAG_GTM",
             "severity": "moderate",
@@ -45,6 +53,7 @@ def check_double_tagging(page, all_pages):
                 "marketing pixels/ads — in that case there is no double-counting. "
                 "Verify by checking if GTM also has a GA4 Configuration tag sending to the same "
                 "measurement ID before concluding events are duplicated."
+                + shopify_note
                 + (f" (Also detected {len(ti.get('thirdPartyGtmIds', []))} third-party vendor container(s) "
                    f"loaded by other scripts: {ti.get('thirdPartyGtmIds', [])} — these are excluded from this finding.)"
                    if ti.get("thirdPartyGtmIds") else "")

@@ -1,11 +1,11 @@
 ---
 name: seo-audit
-description: "Technical on-page SEO audit — inspect a website's meta tags, headings, schema markup, canonicals, Core Web Vitals (LCP), and social sharing tags by loading pages in a real browser. Use this skill whenever the user wants to check a site's SEO health, audit on-page SEO, diagnose ranking issues, review meta tags, or run any kind of technical SEO audit. Also trigger when the user mentions 'SEO audit,' 'technical SEO,' 'why am I not ranking,' 'SEO issues,' 'on-page SEO,' 'meta tags review,' 'SEO health check,' 'my traffic dropped,' 'lost rankings,' 'not showing up in Google,' 'page speed issues,' 'core web vitals,' 'schema markup audit,' or vague requests like 'check my SEO.' Produces a scored, actionable report identifying missing tags, broken structure, schema eligibility gaps, LCP bottlenecks, and optimization opportunities."
+description: "Audit a website's technical SEO health — meta tags, headings, schema markup, canonicals, Core Web Vitals indicators, and social sharing tags — by inspecting live runtime behavior. Use this skill whenever the user wants to check a site's SEO health, audit on-page SEO, diagnose ranking issues, review meta tags, or run any kind of technical SEO audit. Also trigger when the user mentions 'SEO audit,' 'technical SEO,' 'why am I not ranking,' 'SEO issues,' 'on-page SEO,' 'meta tags review,' 'SEO health check,' 'my traffic dropped,' 'lost rankings,' 'not showing up in Google,' 'page speed issues,' 'core web vitals,' 'schema markup audit,' or vague requests like 'check my SEO.' This skill produces a scored, actionable report identifying missing tags, broken structure, and optimization opportunities."
 ---
 
-# Technical On-Page SEO Audit
+# SEO Audit
 
-Audit a website's technical and on-page SEO by inspecting live pages in a real browser. Produces a scored report identifying structural issues, missing tags, schema eligibility gaps, LCP bottlenecks, and optimization opportunities.
+Audit a website's technical and on-page SEO by inspecting live pages in a real browser. Produces a scored report identifying structural issues, missing tags, schema gaps, and performance indicators.
 
 ## Why This Skill Exists
 
@@ -16,11 +16,11 @@ Most SEO audits rely on crawl tools or static HTML analysis. This skill goes fur
 This skill works best with **chrome-devtools-mcp** (runtime browser inspection). The full audit depends on evaluating JavaScript in a live browser to detect runtime-injected schema, SPA content, and actual DOM state.
 
 **If chrome-devtools-mcp is not available**, tell the user and offer a static-analysis fallback:
-> "chrome-devtools-mcp is not available. I can run a static HTML analysis using tavily_extract or web_fetch, which will catch ~70% of issues (meta tags, headings, links, canonical, robots, OG tags) but cannot verify: runtime-injected JSON-LD, SPA content, Core Web Vitals indicators, or post-render DOM state. Want me to proceed with static analysis?"
+> "chrome-devtools-mcp is not available. I can run a static HTML analysis using tavily_extract or WebFetch, which will catch ~70% of issues (meta tags, headings, links, canonical, robots, OG tags) but cannot verify: runtime-injected JSON-LD, SPA content, Core Web Vitals indicators, or post-render DOM state. Want me to proceed with static analysis?"
 
 **If chrome-devtools-mcp is available but the site blocks headless browsers** (bot protection redirecting, CAPTCHA walls, or blank pages), detect this by checking if the loaded page's domain matches the target domain after navigation. If it doesn't:
 1. Note the bot protection in the report (this is itself a finding)
-2. Fall back to static HTML analysis via `tavily_extract` or `web_fetch`
+2. Fall back to static HTML analysis via `tavily_extract` or `WebFetch`
 3. Clearly caveat which checks could not be performed
 
 ## Audit Workflow
@@ -36,13 +36,15 @@ This skill works best with **chrome-devtools-mcp** (runtime browser inspection).
    - Contact/conversion page
    - Category or archive pages (if applicable)
 
-   **If `tavily_map` returns empty**, fall back to HTML link extraction: fetch the homepage via `tavily_extract` or `web_fetch`, then parse internal links from `<a href="...">` tags.
+   **If `tavily_map` returns empty**, fall back to HTML link extraction: fetch the homepage via `tavily_extract` or `WebFetch`, then parse internal links from `<a href="...">` tags.
 
 3. **Select 4-6 pages** covering these types. Always include homepage + a content page + at least one interior page.
 
 4. **Detect site type** (SaaS, ecommerce, blog, local business, portfolio) — this influences which findings are most relevant and how the report frames recommendations.
 
 ### Phase 2: Runtime Inspection (per page)
+
+**CRITICAL: Do NOT dispatch parallel sub-agents for browser inspection.** All chrome-devtools-mcp tool calls share a single Chrome browser instance. Parallel agents cause tab selection confusion (agent A evaluates agent B's tab), navigation timeouts, stuck performance traces, and false findings. Inspect pages **sequentially** — one page at a time, in this session. Non-browser work (tavily_extract, curl for redirect checks) can be parallelized safely.
 
 For each selected page, open it in chrome-devtools-mcp and run these checks. The order matters.
 
@@ -88,14 +90,13 @@ The script returns a JSON object with these top-level keys:
 | `images` | Alt text coverage, lazy loading, responsive images, dimensions |
 | `links` | Internal/external counts, broken anchors, nofollow links, external domains |
 | `schema` | JSON-LD types, raw objects, microdata, boolean flags for Organization/WebSite/Breadcrumb/Article/FAQ |
-| `schemaDetails` | Per-type property lists for Google rich result eligibility validation |
 | `schemaValidation` | Missing required fields in detected schema |
 | `og` | Open Graph tags (title, description, image, url, type) |
 | `twitter` | Twitter Card tags |
 | `hreflang` | Hreflang tags and self-referencing check |
 | `resourceHints` | Preconnect, prefetch, preload, dns-prefetch links |
-| `cwvIndicators` | Images without dimensions (CLS risk), LCP candidate (element, lazy status, fetchpriority, preload), viewport meta |
-| `resources` | Script/stylesheet counts, render-blocking resources (scripts + CSS with detail) |
+| `cwvIndicators` | Images without dimensions (CLS risk), LCP candidate, viewport meta |
+| `resources` | Script/stylesheet counts, render-blocking resources |
 | `accessibility` | HTML lang, skip link, form label coverage |
 | `security` | HTTPS status, mixed content detection |
 | `content` | Word count, pagination rel links |
@@ -114,41 +115,21 @@ After the eval script runs:
    ```
    Check for X-Robots-Tag in response headers (some sites use HTTP headers instead of meta tags for noindex).
 
-2. **LCP Performance Trace** (homepage only):
-   On the homepage, run a full performance trace to get LCP subpart timing:
+2. **Performance trace** (recommended for CWV data):
    ```
    performance_start_trace → reload: true, autoStop: true
    ```
-   After the trace completes, analyze LCP insights:
-   ```
-   performance_analyze_insight → insightName: "LCPBreakdown"
-   performance_analyze_insight → insightName: "RenderBlocking"
-   ```
-   Extract the four LCP subparts (TTFB, resource load delay, resource load duration, element render delay) and identify the bottleneck. Save as `lcpTrace` in the page JSON:
-   ```json
-   {
-     "lcpTrace": {
-       "totalLcp": 2.8,
-       "ttfb": 0.9,
-       "resourceLoadDelay": 0.6,
-       "resourceLoadDuration": 1.0,
-       "elementRenderDelay": 0.3,
-       "bottleneck": "resourceLoadDelay",
-       "lcpElement": "img.hero-banner",
-       "lcpResourceUrl": "/images/hero.webp",
-       "rating": "needs-improvement"
-     }
-   }
-   ```
-   Rating thresholds: `good` (≤2.5s), `needs-improvement` (2.5–4.0s), `poor` (>4.0s).
+   After the trace completes, use `performance_analyze_insight` with the insight set ID to examine:
+   - `LCPBreakdown` — TTFB, load delay, load duration, render delay
+   - `ThirdParties` — transfer sizes and main-thread blocking time per domain
+   - `RenderBlocking` — render-blocking requests and their impact
+   - `CLSCulprits` — what caused layout shifts
 
-   **If the trace times out or fails**, skip it — the lightweight LCP checks from the eval script still run on all pages.
-
-   **On non-homepage pages**, skip the trace. The eval script's `lcpCandidate` field provides lightweight LCP checks (lazy loading, fetchpriority, preload) without the overhead of a full trace.
+   This provides real (not simulated) LCP, CLS, and TTFB data. **Prefer this over `lighthouse_audit`**, which has a known CDP session conflict (ChromeDevTools/chrome-devtools-mcp#1797) causing `Network.emulateNetworkConditions timed out` errors. If you need a full Lighthouse report, run it via CLI: `npx lighthouse <url> --output=json --chrome-flags="--headless"`.
 
 #### Step 4: robots.txt and sitemap.xml (once per domain, not per page)
 
-Fetch these resources using `navigate_page` in a separate tab, `tavily_extract`, or `web_fetch`:
+Fetch these resources using `navigate_page` in a separate tab, `tavily_extract`, or `WebFetch`:
 
 1. **robots.txt** — Check:
    - Does it exist?
@@ -169,6 +150,8 @@ Add these as additional context for the report — they're not part of the per-p
    /tmp/seo-audit/<domain>/<page-slug>.json
    ```
 
+   **Clean the directory first** (`rm -rf /tmp/seo-audit/<domain>/`) before writing new files. Stale JSON from a prior audit run in the same directory will contaminate the checker — it processes every `.json` file in the directory, not just the ones from this session.
+
 2. **Run the deterministic checker**:
    ```bash
    python3 ~/.claude/skills/seo-audit/scripts/check_seo.py --dir /tmp/seo-audit/<domain>/ --pretty
@@ -186,21 +169,6 @@ Generate a professional SEO audit report with these sections:
 - Overall health score (1-10, using `references/scoring-rubric.md`)
 - Top 3-5 priority findings
 - Site type and scope (pages audited)
-
-#### LCP Performance (Homepage)
-
-*Include this section only if an LCP trace was collected on the homepage.*
-
-| Subpart | Time | % of LCP | Target | Status |
-|---------|------|----------|--------|--------|
-| TTFB | X.Xs | XX% | ~40% | OK/High |
-| Resource Load Delay | X.Xs | XX% | <10% | OK/High |
-| Resource Load Duration | X.Xs | XX% | ~40% | OK/High |
-| Element Render Delay | X.Xs | XX% | <10% | OK/High |
-| **Total LCP** | **X.Xs** | | ≤2.5s | Good/Needs Work/Poor |
-
-**LCP Element:** `<element description>`
-**Bottleneck:** [subpart name] — [one-sentence remediation]
 
 #### Scoring Breakdown
 Score each category per the rubric:
@@ -241,7 +209,7 @@ Brief list — these are positive signals or minor optimizations.
 
 ## Static Analysis Fallback
 
-When chrome-devtools-mcp is unavailable, use `tavily_extract` or `web_fetch` to get page HTML. Parse it to construct a partial eval-compatible JSON object:
+When chrome-devtools-mcp is unavailable, use `tavily_extract` or `WebFetch` to get page HTML. Parse it to construct a partial eval-compatible JSON object:
 
 **Available in static mode** (~70% of checks):
 - Title, meta description, canonical, robots meta

@@ -51,16 +51,19 @@ URL patterns, cookie names, and JavaScript globals for detecting martech platfor
 | Zendesk | `static.zdassets.com` | — | `zE` |
 | Crisp | `client.crisp.chat` | `crisp-client` | `$crisp` |
 | LiveChat | `cdn.livechatinc.com` | — | `LiveChatWidget` |
+| Front | `chat-assets.frontapp.com` | — | `FrontChat` |
 
 ## Email & Marketing Automation
 
-| Platform | Script URL Pattern | Cookies | JS Global | Notes |
-|---|---|---|---|---|
-| ConvertKit / Kit | `f.convertkit.com/ckjs`, `kit.com` | `_ck_visitor`, `_ck_subscriber` | — | Rebranded to Kit in 2024. Forms submit to `app.kit.com`, JS still served from `f.convertkit.com`. |
-| Mailchimp | `chimpstatic.com` | `mailchimp_` | `mc_` | — |
-| ActiveCampaign | `trackcmp.net` | — | `vgo` | — |
-| Klaviyo | `static.klaviyo.com` | — | `_learnq` | — |
-| Customer.io | `assets.customer.io` | — | `_cio` | — |
+| Platform | Script URL Pattern | Cookies | JS Global |
+|---|---|---|---|
+| ConvertKit (Kit) | `f.convertkit.com/ckjs`, `domain-methods.kit.com/*/index.js` | `_ck_visitor`, `_ck_subscriber` | — |
+
+> **Kit.com rebranding note:** ConvertKit rebranded to Kit in 2024. Form embeds now load from `*.kit.com` subdomains. The Kit subdomain must exactly match the account's configured subdomain — if the site embeds a script from the wrong subdomain (e.g., a typo or stale embed code), Chrome's Opaque Resource Blocking (ORB) will silently block it. When you see a Kit script returning `ERR_BLOCKED_BY_ORB`, check whether a different Kit subdomain loads successfully on the same page — that reveals the correct one. Also check `app.kit.com/forms/*/subscriptions` as the form submission endpoint. The `app.convertkit.com` endpoint is still active alongside `app.kit.com`.
+| Mailchimp | `chimpstatic.com` | `mailchimp_` | `mc_` |
+| ActiveCampaign | `trackcmp.net` | — | `vgo` |
+| Klaviyo | `static.klaviyo.com` | — | `_learnq` |
+| Customer.io | `assets.customer.io` | — | `_cio` |
 
 ## Consent Management Platforms
 
@@ -84,7 +87,7 @@ URL patterns, cookie names, and JavaScript globals for detecting martech platfor
 | 6sense | `6sense.com`, `6sc.co` | `_6si` | `_6sas`, `_6suuid` | Intent data and company identification. |
 | Bombora | `bombora.com` | — | — | B2B intent data. |
 | Warmly | `warmly.ai` | `warmly` | — | Real-time visitor identification + chat. |
-| Apollo.io | `assets.apollo.io`, `aplo-evnt.com` | — | — | Intent pixel for website visitor tracking. Uses `aplo-evnt.com` as tracking domain. |
+| Apollo.io | `assets.apollo.io/micro/website-tracker/tracker.iife.js` | — | — | Intent data pixel. Tracks visitor behavior via `aplo-evnt.com` endpoint. Check `aplo-evnt.com/api/v1/intent_pixel/can_track_visitor` and `track_request` in network requests. Not a de-anonymization tool like RB2B — focuses on intent signals for existing contacts in Apollo's database. |
 
 These tools perform visitor de-anonymization and should be disclosed in privacy policies. They are frequently broken (blocked by browser security) or misconfigured. Always check both if the script loads AND if the JS global exists (the global may be set by inline code even if the main script fails).
 
@@ -111,3 +114,31 @@ Enterprise sites often run a legacy TMS alongside GTM. Detecting these is a high
 | `sst.sw_exp` parameter in GA4 collect URL | Server-side service worker experiment |
 | Stape.io patterns in URL paths | Stape-hosted server container |
 | `gtm_health` or `gtg_health` query param | GTM server container health check |
+
+## Shopify Ecosystem
+
+Shopify sites have a distinctive tracking architecture. In addition to standard GTM/pixel setups, Shopify loads its own analytics infrastructure and app-installed pixels via sandboxed Web Pixel iframes.
+
+| Platform | Script URL Pattern | Cookies | JS Global | Notes |
+|---|---|---|---|---|
+| Shopify Web Pixels | `web-pixels@*/sandbox/modern/` (iframe src) | — | — | Sandboxed iframes that load app-installed pixels (TikTok, Google Ads, Bing, etc.) in isolated contexts. Invisible to eval script. Count iframes to estimate pixel load. |
+| Shopify Trekkie | `trekkie.storefront.*.min.js` | `_shopify_s`, `_shopify_y` | — | Shopify's first-party analytics. Always present on Shopify stores. |
+| Mountain.com | `px.mountain.com/st`, `dx.mountain.com/spx` | — | — | Shopify attribution/analytics platform. Sends GA4 client ID and page metadata to Mountain's servers. |
+| SafeOpt | `manage.safeopt.com` | — | — | Email remarketing and identity resolution. Often installed via Shopify app. Makes HEAD requests to `/consent` endpoint. Should be disclosed in privacy policy. |
+| Postscript | `sdk.postscript.io` | — | — | SMS marketing platform for Shopify. Loads SDK script loader and form handler. |
+| SMSBump (Yotpo SMS) | `forms-akamai.smsbump.com`, `d18eg7dreypte5.cloudfront.net` | — | — | SMS marketing. Now part of Yotpo. Loads subscription scripts and browse-abandonment timers. |
+| Recharge | `static.rechargecdn.com` | — | — | Subscription management for Shopify. Loads widget scripts for subscription product options. |
+
+## Attribution & Multi-Touch
+
+| Platform | Script URL Pattern | Cookies | JS Global | Notes |
+|---|---|---|---|---|
+| Northbeam | `j.northbeam.io` | — | — | Multi-touch attribution platform. Loads vendor script and account-specific config (`ota-sp/*.js`). |
+| StackAdapt | `tags.srv.stackadapt.com/events.js` | — | — | Programmatic DSP. Fires event tracking for campaign attribution. |
+
+## Reviews & UGC
+
+| Platform | Script URL Pattern | Notes |
+|---|---|---|
+| Okendo | `cdn-static.okendo.io/reviews-widget-plus/js/okendo-reviews.js`, `d3hw6dc1ow8pp2.cloudfront.net` | Product reviews platform. Loads multiple JS modules (core, styles, translation, widget-init, star-rating, carousel, badge). |
+| Videowise | `assets.videowise.com/client.js.gz`, `assets.videowise.com/vendors.js.gz` | Video commerce platform. Enables shoppable video on Shopify stores. |

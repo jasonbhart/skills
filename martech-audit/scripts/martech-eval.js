@@ -13,6 +13,12 @@
 // Similarly, pixels loaded by GTM at runtime (not hardcoded in HTML) will not
 // appear in allScriptText. Use network request evidence (list_network_requests)
 // to confirm pixel presence for GTM-managed tags.
+//
+// Shopify web pixel sandboxes are a similar blind spot — Shopify loads pixels
+// (TikTok, Google Ads, Bing, Reddit, etc.) inside isolated <iframe> elements
+// that the parent page's JS cannot access. The shopifyWebPixels field flags
+// when these sandboxes are present so the orchestrator knows to rely on
+// network evidence for pixel detection on Shopify sites.
 () => {
   const r = {};
   r.url = location.href;
@@ -323,7 +329,8 @@
     heap: allScriptText.includes('heap-') || allScriptText.includes('heap.load'),
     fullstory: allScriptText.includes('fullstory.com') || allScriptText.includes('FS.identify'),
     intercom: allScriptText.includes('widget.intercom.io') || allScriptText.includes('Intercom('),
-    google_ads: allScriptText.includes('googleads') || allScriptText.includes('gtag_report_conversion'),
+    google_ads: allScriptText.includes('googleads') || allScriptText.includes('gtag_report_conversion') ||
+      allScriptText.includes('googleadservices') || r.gtmObject.some(k => /^AW-/.test(k)),
     bing: allScriptText.includes('bat.bing.com') || allScriptText.includes('UET'),
     marketo: allScriptText.includes('munchkin.marketo.net') || allScriptText.includes('Munchkin.init') || (typeof Munchkin !== 'undefined'),
     pinterest: allScriptText.includes('pinimg.com/ct') || allScriptText.includes('pintrk') || allScriptText.includes('ct.pinterest.com'),
@@ -337,8 +344,25 @@
     tvsquared: allScriptText.includes('tvsquared.com') || allScriptText.includes('tv2track'),
     connexity: allScriptText.includes('cnnx.link') || allScriptText.includes('connexity.net'),
     dnb: allScriptText.includes('d41.co') || allScriptText.includes('dnb_coretag'),
-    convertkit: allScriptText.includes('convertkit.com') || allScriptText.includes('f.convertkit.com') || allScriptText.includes('app.kit.com') || allScriptText.includes('.kit.com/'),
   };
+
+  // Shopify Web Pixel sandbox detection — these iframes load pixels (TikTok,
+  // Google Ads, Bing, etc.) in isolated contexts invisible to allScriptText.
+  // The eval script cannot inspect inside them, but knowing they exist helps
+  // the orchestrator understand why network evidence may show pixels the eval missed.
+  r.shopifyWebPixels = (() => {
+    const wpIframes = Array.from(document.querySelectorAll('iframe')).filter(i =>
+      (i.src || '').includes('web-pixels') && (i.src || '').includes('sandbox')
+    );
+    return {
+      detected: wpIframes.length > 0,
+      count: wpIframes.length,
+      ids: wpIframes.map(i => {
+        const m = (i.src || '').match(/web-pixel-(\d+)/);
+        return m ? m[1] : null;
+      }).filter(Boolean),
+    };
+  })();
 
   // Alternative TMS
   r.alternativeTMS = {
@@ -385,7 +409,6 @@
     bombora: allScriptText.includes('bombora.com'),
     warmly: allScriptText.includes('warmly.ai') || typeof warmly !== 'undefined',
     dealfront: allScriptText.includes('dealfront'),
-    apollo: allScriptText.includes('apollo.io') || allScriptText.includes('aplo-evnt.com'),
   };
 
   // ABM integration health
@@ -443,12 +466,6 @@
       });
     })(),
   };
-
-  r.customConsentImplementation = (() => {
-    const namedCMPs = [r.consent.cookiebot, r.consent.onetrust, r.consent.osano, r.consent.termly,
-      r.consent.trustarc, r.consent.usercentrics, r.consent.didomi, r.consent.ketch, r.consent.iubenda];
-    return { detected: !namedCMPs.some(Boolean) && r.consent.consentMode, note: 'Consent Mode active without a named CMP — likely custom GTM-managed consent' };
-  })();
 
   // Consent Mode state — full analysis with region scoping
   r.consentModeState = (() => {
@@ -541,7 +558,7 @@
       return linkHost !== location.hostname && (
         a.href.includes('checkout') || a.href.includes('pay') || a.href.includes('book') ||
         a.href.includes('schedule') || a.href.includes('calendly') || a.href.includes('stripe') ||
-        a.href.includes('hubspot') || a.href.includes('typeform') || a.href.includes('calendar.google.com')
+        a.href.includes('hubspot') || a.href.includes('typeform')
       );
     } catch(e) { return false; }
   }).slice(0, 10).map(a => ({
@@ -613,9 +630,6 @@
     hasOnclick: !!el.onclick,
     dataAttrs: Array.from(el.attributes).filter(a => a.name.startsWith('data-')).map(a => a.name),
   }));
-
-  // Store core results for enrichment script compatibility
-  window.__martechCore = r;
 
   // --- Enrichment fields (previously SKILL.md-only, now canonical) ---
 

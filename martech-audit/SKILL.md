@@ -1,11 +1,11 @@
 ---
 name: martech-audit
-description: "Martech tagging audit — inspect a website's tag and pixel implementation (GA4, GTM, data layer, consent, ad pixels) by loading pages in a real browser and observing runtime behavior. Use this skill whenever the user wants to check a site's analytics setup, audit tracking pixels, diagnose GTM or GA4 issues, find broken tags, review a prospect's martech stack, do a 'data layer check,' assess tracking health, or run any kind of website analytics/tagging audit. Also trigger when the user mentions 'what pixels are on this site,' 'is their GA4 working,' 'check their tracking,' 'martech health check,' 'tag audit,' or 'pixel audit.' Produces a scored, bizdev-ready report identifying broken tracking, missing events, consent gaps, and optimization opportunities."
+description: "Audit a website's marketing technology stack — GA4, GTM, pixels, data layer, consent, and schema markup — by inspecting live runtime behavior. Use this skill whenever the user wants to check a site's analytics setup, audit tracking pixels, diagnose GTM or GA4 issues, find broken tags, review a prospect's martech stack, do a 'data layer check,' assess tracking health, or run any kind of website analytics/tagging audit. Also trigger when the user mentions 'what pixels are on this site,' 'is their GA4 working,' 'check their tracking,' 'martech health check,' 'tag audit,' or 'pixel audit.' This skill produces a scored, bizdev-ready report that identifies broken tracking, missing events, and optimization opportunities."
 ---
 
-# Martech Tagging Audit
+# Martech Audit
 
-Audit a website's tag and pixel implementation by inspecting live runtime behavior. Produces a scored report identifying broken tracking, missing events, consent gaps, and optimization opportunities.
+Audit a website's marketing technology stack by inspecting live runtime behavior. Produces a scored report identifying broken tracking, missing events, consent gaps, and optimization opportunities.
 
 ## Why This Skill Exists
 
@@ -49,6 +49,8 @@ Static analysis can still catch: GTM/GA4/pixel presence in HTML, schema markup, 
 **Multi-site audit isolation:** When auditing multiple sites in a single session (e.g., `dell.com` then `apple.com`), use `isolatedContext` on `new_page` for each target to prevent cookie/state contamination between sites. Without isolation, cookies from Site A leak into Site B's browser context — requests from Dell's fraud detection gateway appeared on Apple's page in testing. Use: `new_page → url, isolatedContext: "dell"` for the first site, `new_page → url, isolatedContext: "apple"` for the second.
 
 ### Phase 2: Runtime Inspection (per page)
+
+**CRITICAL: Do NOT dispatch parallel sub-agents for browser inspection.** All chrome-devtools-mcp tool calls share a single Chrome browser instance. Parallel agents cause tab selection confusion (agent A evaluates agent B's tab), navigation timeouts, stuck performance traces, and false findings. Inspect pages **sequentially** — one page at a time, in this session. Non-browser work (tavily_extract for privacy policy, curl for redirect checks) can be parallelized safely.
 
 For each selected page, open it in chrome-devtools-mcp and run these checks. The order matters — some checks depend on the page being fully loaded.
 
@@ -119,14 +121,13 @@ Wait 5-8 seconds for deferred scripts to execute, then verify with `list_network
 
 #### Step 2: Inspect the JavaScript environment
 
-The eval is split into two scripts for size: `scripts/martech-eval-core.js` (core detections) and `scripts/martech-eval-enrichment.js` (enrichment fields). Run them in order via two `evaluate_script` calls:
+Run `evaluate_script` with the canonical eval script from `scripts/martech-eval.js`. Read the file and pass its contents to `evaluate_script`. **Do not inline a copy of this script — always read from the file to avoid drift.**
 
-1. Read `scripts/martech-eval-core.js` and pass its contents to `evaluate_script`. This runs core detections (GTM/GA4, dataLayer, cookies, pixels, B2B tools, consent, OG tags, schema, forms, cross-domain links, video embeds, iframes, CTAs) and stores results on `window.__martechCore`.
-2. Read `scripts/martech-eval-enrichment.js` and pass its contents to a second `evaluate_script` call. This extends the core results with enrichment fields (dataLayer sequencing, scripts outside GTM, YouTube cookie risk, CRM cookie scope, LinkedIn Insight details, Pardot, Google Ads Enhanced Conversions, page indexability, HubSpot forms, Cloudflare Zaraz, SPA detection) and returns the full result.
+```
+evaluate_script: <contents of scripts/martech-eval.js>
+```
 
-**Both scripts must be read from the file and passed — do not inline copies of either script.**
-
-The script collects: GTM/GA4 containers (first-party vs third-party classification), dataLayer contents and quality, cookies, all major pixels, alternative TMS (Tealium, Adobe Launch/DTM), Adobe analytics stack, B2B tools (6sense, Demandbase, Clearbit, etc.), ABM integration health, consent state (9 CMPs + Consent Mode v2 with region scoping), OG/Twitter Card tags, schema markup, cross-domain links, forms with hidden field values, video embeds with tracking API detection, iframe inventory, postMessage listeners, CTA tracking attributes, chatbot auto-interaction events, LinkedIn Insight Tag conversions, Pardot domain check, Google Ads Enhanced Conversions, page indexability, HubSpot form embed type, Cloudflare Zaraz, SPA framework detection, CRM cookie scoping, rogue scripts outside GTM, dataLayer sequencing/race conditions, and YouTube iframe cookie risk.
+The script collects: GTM/GA4 containers (first-party vs third-party classification), dataLayer contents and quality, cookies, all major pixels (25 vendors), alternative TMS (Tealium, Adobe Launch/DTM), Adobe analytics stack, B2B tools (6sense, Demandbase, Clearbit, etc.), ABM integration health, consent state (9 CMPs + Consent Mode v2 with region scoping), OG/Twitter Card tags, schema markup, cross-domain links, forms with hidden field values, video embeds with tracking API detection, iframe inventory, postMessage listeners, CTA tracking attributes, chatbot auto-interaction events, LinkedIn Insight Tag conversions, Pardot domain check, Google Ads Enhanced Conversions, page indexability, HubSpot form embed type, Cloudflare Zaraz, SPA framework detection, CRM cookie scoping, rogue scripts outside GTM, dataLayer sequencing/race conditions, YouTube iframe cookie risk, and Shopify Web Pixel sandbox detection.
 
 <details><summary>Key fields produced (click to expand)</summary>
 
@@ -135,7 +136,7 @@ The script collects: GTM/GA4 containers (first-party vs third-party classificati
 | `tagInstallations` | GTM/GA4 IDs with first-party vs third-party classification |
 | `dataLayer`, `dataLayerQuality` | Full dataLayer contents, PII scan, ecommerce validation |
 | `dataLayerSequencing` | Race condition detection (business data arriving after gtm.js) |
-| `pixels` | 14 pixel vendors detected (FB, LinkedIn, Twitter, TikTok, Hotjar, HubSpot, Clarity, Segment, Heap, FullStory, Intercom, Google Ads, Bing, Marketo) |
+| `pixels` | 25 pixel vendors detected (FB, LinkedIn, Twitter, TikTok, Hotjar, HubSpot, Clarity, Segment, Heap, FullStory, Intercom, Google Ads, Bing, Marketo, Pinterest, Reddit, Snapchat, Taboola, The Trade Desk, Quantcast, Yahoo, LiveRamp, TVSquared, Connexity, D&B) |
 | `consent`, `consentModeState` | 9 CMPs + Consent Mode v2 defaults/updates with region scoping |
 | `ogTags`, `meta` | OG/Twitter Card validation, canonical, robots, description |
 | `crossDomainLinks`, `crossDomain` | Conversion-related external links + _gl parameter check |
@@ -143,7 +144,7 @@ The script collects: GTM/GA4 containers (first-party vs third-party classificati
 | `videoEmbeds` | YouTube/Vimeo/Wistia with enablejsapi/api tracking API check |
 | `iframes`, `hasPostMessageListener` | All iframes + postMessage listener detection |
 | `scriptsOutsideGTM` | Tracking scripts bypassing Consent Mode |
-| `consentModeState` | Full consent analysis: defaults, updates, v2 signals, region scoping |
+| `shopifyWebPixels` | Shopify Web Pixel sandbox detection (count, IDs) — flags when pixels load in isolated iframes invisible to allScriptText |
 | `linkedinInsightTag` | Base tag vs conversion event detection |
 | `pardotTracking` | Third-party vs first-party domain check |
 | `googleAdsEnhanced` | Enhanced Conversions config and user data in dataLayer |
@@ -159,6 +160,18 @@ Previously this script was inlined here. It now lives at `scripts/martech-eval.j
 **IMPORTANT:** After the eval completes, the result is a JSON object. Do NOT modify the script — if you need additional data, collect it in a separate `evaluate_script` call.
 
 <!-- Old inline eval removed — canonical source is now scripts/martech-eval.js -->
+
+#### Step 2a: Shopify Web Pixel sandbox reconciliation
+
+**Shopify sites only.** Shopify's Web Pixels system loads advertising and analytics pixels (TikTok, Google Ads, Bing, Reddit, Snapchat, etc.) inside sandboxed `<iframe>` elements. These iframes run in isolated JavaScript contexts — the eval script **cannot detect pixels loaded this way**. The `shopifyWebPixels` field in the eval output flags when these sandboxes are present.
+
+If `shopifyWebPixels.detected` is true:
+
+1. **Do not trust `pixels.*: false` at face value** — a pixel showing `false` in the eval may still be active via a Shopify web pixel. Always cross-reference with `list_network_requests` before reporting a pixel as absent.
+2. **Expect triple-tagging, not just double** — Shopify's web pixel system fires its own `page_view` and conversion events independently of both hardcoded gtag.js and GTM. If the eval shows `doubleTagging: true` on a Shopify site, the actual situation is likely triple-counting (hardcoded + GTM + Shopify web pixel).
+3. **SecurityError console spam is expected** — Shopify web pixel sandboxes generate `SecurityError: Failed to read 'matchMedia' from Window` errors. These are platform noise, not site bugs. Note them as informational, not as a finding.
+4. **Reconcile pixel detection with network evidence** — For each pixel domain found in `list_network_requests` but not in the eval's `pixels` object, add it to the detected tools list in the report. Common Shopify web pixel-loaded platforms: TikTok, Google Ads (via Shopify's own conversion pixel), Bing, Reddit, Snapchat.
+5. **Check for additional Shopify ecosystem tools in network requests** — SafeOpt (`manage.safeopt.com`), Mountain.com (`px.mountain.com`, `dx.mountain.com`), and Shopify's own attribution (`trekkie.storefront`) are common on Shopify sites and won't appear in the eval.
 
 #### Step 2b: Consent Deep Checks (run on homepage, separate browser context)
 
@@ -335,15 +348,17 @@ When server-side tagging is detected in Step 4, run these additional checks:
 On the primary conversion page (contact/demo/booking), run these additional checks:
 
 1. **Form validation vs conversion firing** — If there's a form, try to identify whether conversion events fire on button click (wrong — counts failed validations) or on successful submission. Check if the form has client-side validation and whether a dataLayer event or network request fires when validation fails.
-2. **Cross-domain link tracking** — Check `crossDomainLinks` from the JS eval. Any link to a booking tool (Calendly, Google Calendar, HubSpot meetings), payment processor (Stripe checkout), or app domain should include the `_gl` linker parameter for GA4 session continuity. Missing `_gl` = broken attribution on every conversion. **Same root domain exception:** If the conversion page is on a subdomain of the main site (e.g., `try.example.com` vs `www.example.com`), GA4 cookies (scoped to `.example.com` by default) are shared automatically between all subdomains. No `_gl` linker parameter is needed. Verify by checking that the `_ga` cookie value (Client ID) matches on both domains. Do NOT flag missing `_gl` parameters as broken cross-domain tracking when both domains share the same registrable domain — this is NOT the same as two entirely separate domains (e.g., `example.com` -> `calendly.com`).
+2. **Cross-domain link tracking** — Check `crossDomainLinks` from the JS eval. Any link to a booking tool (Calendly, HubSpot meetings), payment processor (Stripe checkout), or app domain should include the `_gl` linker parameter for GA4 session continuity. Missing `_gl` = broken attribution on every conversion. **Same root domain exception:** If the conversion page is on a subdomain of the main site (e.g., `try.example.com` vs `www.example.com`), GA4 cookies (scoped to `.example.com` by default) are shared automatically between all subdomains. No `_gl` linker parameter is needed. Verify by checking that the `_ga` cookie value (Client ID) matches on both domains. Do NOT flag missing `_gl` parameters as broken cross-domain tracking when both domains share the same registrable domain — this is NOT the same as two entirely separate domains (e.g., `example.com` -> `calendly.com`).
 3. **Hidden field capture** — Check `forms.hiddenFields`. Well-instrumented forms capture `gclid`, `utm_source`, `utm_medium`, `utm_campaign` in hidden fields for CRM pass-through. Missing hidden fields = offline conversion import will fail, Google Ads can't optimize toward revenue.
-4. **Iframe event listeners** — If the conversion page embeds a third-party iframe (Calendly, Google Calendar, HubSpot), check page source for `addEventListener('message', ...)` handlers that listen for booking/submission events and push to dataLayer. Without this, the iframe is a black box.
+4. **Iframe event listeners** — If the conversion page embeds a third-party iframe (Calendly, Google Calendar, HubSpot), check page source for `addEventListener('message', ...)` handlers that listen for booking/submission events and push to dataLayer. Without this, the iframe is a black box. **Google Calendar Appointments** is a particularly common pattern — it loads the full Google Calendar scheduling widget inside an iframe (`calendar.google.com/calendar/appointments/...`), which pulls in 15+ JavaScript chunks from `gstatic.com` plus reCAPTCHA. The booking action happens entirely inside Google's domain, so there is no URL-based conversion detection possible. The only way to capture the booking event is via `postMessage` from the iframe — verify both that a listener exists AND that it actually pushes a conversion event to the dataLayer.
 
 #### Step 9: Tag performance audit (run once on homepage)
 
 Tags are a leading cause of page speed degradation, and site owners rarely connect "we added a pixel" to "our Core Web Vitals tanked." Run this on the homepage (highest traffic page):
 
-1. **Run a Lighthouse audit** via `lighthouse_audit` — capture Performance score, LCP, TBT (Total Blocking Time), CLS, and INP. Note the "Reduce the impact of third-party code" diagnostic — it lists every third-party domain with its transfer size and main-thread blocking time. **If Lighthouse times out** (common on heavy enterprise pages with 20+ third-party scripts), fall back to reporting the `thirdPartyTrackingDomains` count and `gtmContainerCount` as proxy metrics. A page that crashes Lighthouse is itself a performance finding worth reporting.
+1. **Run a performance trace** via `performance_start_trace` (with `reload: true`, `autoStop: true`) on the homepage. This captures real LCP, CLS, and TTFB from the trace. After the trace completes, use `performance_analyze_insight` with the `ThirdParties` insight to get per-domain transfer sizes and main-thread blocking time, and `RenderBlocking` to identify render-blocking requests.
+
+   **Why not `lighthouse_audit`?** The `lighthouse_audit` tool has a known CDP session conflict (ChromeDevTools/chrome-devtools-mcp#1797) that causes `Network.emulateNetworkConditions timed out` errors. This is not a timeout duration issue — it's a bug where the MCP server's existing CDP session holds the Network domain, preventing Lighthouse's internal session from using it. The performance trace approach is more reliable and provides real (not simulated) metrics. If you need a full Lighthouse report, run it via CLI: `npx lighthouse <url> --output=json --chrome-flags="--headless"`.
 
 2. **Analyze network request timing** — from `list_network_requests`, look for:
    - **Render-blocking scripts** — any tracking script loaded synchronously in `<head>` without `async` or `defer`. GTM should always be loaded async. If gtag.js or any pixel script lacks `async`, it blocks rendering.
@@ -372,12 +387,13 @@ Tags are a leading cause of page speed degradation, and site owners rarely conne
 
    | Metric | Value | Impact from Tags |
    |--------|-------|-----------------|
-   | Performance Score | X/100 | |
-   | LCP | X.Xs | [Any tag-caused delay?] |
-   | TBT | Xms | [Third-party blocking time from Lighthouse] |
+   | LCP | X.Xs | [Any tag-caused delay? Check LCP breakdown render delay] |
+   | TTFB | Xms | [Server response time] |
    | CLS | X.XX | [Any tag-injected layout shifts?] |
+   | Third-party transfer | X kB | [From ThirdParties insight — total transfer size] |
+   | Third-party main thread | Xms | [From ThirdParties insight — total blocking time] |
    | Third-party domains | X | [From thirdPartyTrackingDomains] |
-   | Estimated tag overhead | ~Xs | [Sum of third-party blocking time] |
+   | Render-blocking scripts | X | [From RenderBlocking insight] |
 
 #### Step 10: UTM parameter survival check
 
@@ -503,7 +519,9 @@ After inspecting all pages, look for:
 
 ### Phase 3.5: Run Deterministic Checks
 
-After collecting eval data from all pages, save each page's JS eval result as a JSON file (include a `"url"` field), then run the automated checker:
+After collecting eval data from all pages, save each page's JS eval result as a JSON file (include a `"url"` field). **Clean the output directory first** (`rm -rf /path/to/page-evals/`) before writing new files — stale JSON from a prior audit run will contaminate the checker since it processes every `.json` file in the directory.
+
+Run the automated checker:
 
 ```bash
 python scripts/check_findings.py --dir /path/to/page-evals/ --pretty
@@ -590,12 +608,13 @@ Always use this exact structure:
 ## Tag Performance Impact
 | Metric | Value | Tag-Related Impact |
 |--------|-------|-------------------|
-| Performance Score | X/100 | |
-| LCP | X.Xs | |
-| TBT | Xms | [Third-party blocking time] |
+| LCP | X.Xs | [Any tag-caused delay? Check LCP breakdown render delay] |
+| TTFB | Xms | [Server response time] |
 | CLS | X.XX | [Tag-injected layout shifts] |
-| Third-party scripts | X domains | |
-| Estimated tag overhead | ~X.Xs | |
+| Third-party transfer | X kB | [From ThirdParties insight] |
+| Third-party main thread | Xms | [From ThirdParties insight — blocking time] |
+| Third-party domains | X | [From thirdPartyTrackingDomains] |
+| Render-blocking scripts | X | [From RenderBlocking insight] |
 
 [Key findings: render-blocking scripts, tag firing timing issues, zombie tags, CLS-causing injections, recommendations to reduce impact]
 
