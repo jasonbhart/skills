@@ -425,21 +425,46 @@
       (i.naturalWidth > 50 || !i.complete)
     ).length;
 
-    // LCP candidate heuristic — find largest visible element
+    // LCP candidate — use PerformanceObserver if available, fall back to heuristic
     let lcpCandidate = null;
     try {
-      // Check for hero images or large above-fold elements
-      const heroImg = document.querySelector('img[fetchpriority="high"]') ||
-        document.querySelector('[class*="hero"] img') ||
-        document.querySelector('main img:first-of-type');
-      if (heroImg) {
-        lcpCandidate = {
-          tag: 'img',
-          src: (heroImg.src || heroImg.currentSrc || '').substring(0, 200),
-          width: heroImg.naturalWidth || heroImg.width,
-          height: heroImg.naturalHeight || heroImg.height,
-          hasFetchPriority: heroImg.fetchPriority === 'high',
-        };
+      const lcpEntries = performance.getEntriesByType('largest-contentful-paint');
+      if (lcpEntries && lcpEntries.length > 0) {
+        const lastEntry = lcpEntries[lcpEntries.length - 1];
+        const el = lastEntry.element;
+        if (el) {
+          const isImg = el.tagName === 'IMG' || (el.tagName === 'VIDEO' && el.poster);
+          const src = el.src || el.currentSrc || el.poster || '';
+          lcpCandidate = {
+            element: el.tagName.toLowerCase(),
+            selector: el.id ? `#${el.id}` : (el.className ? `${el.tagName.toLowerCase()}.${el.className.split(' ')[0]}` : el.tagName.toLowerCase()),
+            url: src.substring(0, 200),
+            isLazy: el.loading === 'lazy' || el.hasAttribute('data-src') || el.hasAttribute('data-lazy-src') || el.classList.contains('lazyload'),
+            hasFetchpriority: el.fetchPriority === 'high',
+            hasPreload: !!document.querySelector(`link[rel="preload"][href="${src.split('?')[0]}"], link[rel="preload"][href="${src}"]`),
+            isText: !isImg,
+            renderTime: lastEntry.renderTime || lastEntry.startTime,
+          };
+        }
+      }
+      // Fallback: heuristic if PerformanceObserver didn't capture
+      if (!lcpCandidate) {
+        const heroImg = document.querySelector('img[fetchpriority="high"]') ||
+          document.querySelector('[class*="hero"] img') ||
+          document.querySelector('main img:first-of-type');
+        if (heroImg) {
+          const src = heroImg.src || heroImg.currentSrc || '';
+          lcpCandidate = {
+            element: 'img',
+            selector: heroImg.id ? `#${heroImg.id}` : (heroImg.className ? `img.${heroImg.className.split(' ')[0]}` : 'img'),
+            url: src.substring(0, 200),
+            isLazy: heroImg.loading === 'lazy' || heroImg.hasAttribute('data-src') || heroImg.hasAttribute('data-lazy-src') || heroImg.classList.contains('lazyload'),
+            hasFetchpriority: heroImg.fetchPriority === 'high',
+            hasPreload: !!document.querySelector(`link[rel="preload"][href="${src.split('?')[0]}"], link[rel="preload"][href="${src}"]`),
+            isText: false,
+            renderTime: null,
+          };
+        }
       }
     } catch (e) { /* best effort */ }
 
@@ -470,13 +495,13 @@
       s.type !== 'application/ld+json' &&
       s.type !== 'application/json' &&
       s.type !== 'module'
-    ).map(s => s.src.substring(0, 200));
+    ).map(s => ({ tag: 'script', src: s.src.substring(0, 200), hasAsync: false, hasDefer: false }));
 
     // Render-blocking stylesheets (no media query or media="all")
-    const blockingCSS = stylesheets.filter(l => {
+    const blockingCSSList = stylesheets.filter(l => {
       const media = l.media;
       return !media || media === 'all' || media === '';
-    }).length;
+    }).map(l => ({ tag: 'link', href: (l.href || '').substring(0, 200), media: l.media || 'all' }));
 
     return {
       totalScripts: scripts.filter(s => s.src || s.textContent.trim().length > 10).length,
@@ -486,7 +511,8 @@
       inlineStyleCount: inlineStyles.length,
       renderBlockingScripts: renderBlocking.slice(0, 10),
       renderBlockingScriptCount: renderBlocking.length,
-      blockingCSSCount: blockingCSS,
+      blockingCSSCount: blockingCSSList.length,
+      renderBlockingResources: [...renderBlocking, ...blockingCSSList].slice(0, 15),
     };
   })();
 
