@@ -1060,6 +1060,166 @@ def check_broken_anchors(page, all_pages):
     return findings
 
 
+def check_lcp_lazy(page, all_pages):
+    """LCP candidate element has loading='lazy' — delays the most important paint."""
+    findings = []
+    url = page.get("url", "unknown")
+    cwv = page.get("cwvIndicators", {})
+    lcp = cwv.get("lcpCandidate")
+
+    if not lcp or lcp.get("isText"):
+        return findings
+
+    if lcp.get("isLazy"):
+        findings.append({
+            "id": "LCP_LAZY_LOADED",
+            "severity": "critical",
+            "title": "LCP image has loading=\"lazy\" — delays largest paint",
+            "detail": (
+                f"Element: {lcp.get('selector', 'unknown')} ({lcp.get('url', '')})\n"
+                "The Largest Contentful Paint element is set to lazy-load, which tells "
+                "the browser to deprioritize it. This directly delays LCP because the "
+                "browser won't start fetching the image until it's near the viewport. "
+                "Remove loading=\"lazy\" from the LCP image and add fetchpriority=\"high\" instead."
+            ),
+            "page": url,
+        })
+    return findings
+
+
+def check_lcp_fetchpriority(page, all_pages):
+    """LCP image missing fetchpriority='high'."""
+    findings = []
+    url = page.get("url", "unknown")
+    cwv = page.get("cwvIndicators", {})
+    lcp = cwv.get("lcpCandidate")
+
+    if not lcp or lcp.get("isText") or lcp.get("isLazy"):
+        return findings
+
+    if not lcp.get("hasFetchpriority"):
+        findings.append({
+            "id": "LCP_NO_FETCHPRIORITY",
+            "severity": "moderate",
+            "title": "LCP image missing fetchpriority=\"high\"",
+            "detail": (
+                f"Element: {lcp.get('selector', 'unknown')} ({lcp.get('url', '')})\n"
+                "Adding fetchpriority=\"high\" to the LCP image tells the browser to "
+                "prioritize this resource over other images and non-critical resources. "
+                "This reduces the resource load delay subpart of LCP."
+            ),
+            "page": url,
+        })
+    return findings
+
+
+def check_lcp_preload(page, all_pages):
+    """LCP image resource not preloaded."""
+    findings = []
+    url = page.get("url", "unknown")
+    cwv = page.get("cwvIndicators", {})
+    lcp = cwv.get("lcpCandidate")
+
+    if not lcp or lcp.get("isText") or not lcp.get("url"):
+        return findings
+
+    if not lcp.get("hasPreload"):
+        findings.append({
+            "id": "LCP_NO_PRELOAD",
+            "severity": "moderate",
+            "title": "LCP resource not preloaded",
+            "detail": (
+                f"Element: {lcp.get('selector', 'unknown')} ({lcp.get('url', '')})\n"
+                "The LCP resource has no matching <link rel=\"preload\">. If the LCP image "
+                "isn't discoverable in the initial HTML (e.g., it's set via CSS background-image "
+                "or loaded by JavaScript), a preload hint eliminates the resource load delay. "
+                "Add: <link rel=\"preload\" as=\"image\" href=\"{url}\" fetchpriority=\"high\">"
+            ),
+            "page": url,
+        })
+    return findings
+
+
+def check_render_blocking_count(page, all_pages):
+    """Excessive render-blocking resources in <head>."""
+    findings = []
+    url = page.get("url", "unknown")
+    resources = page.get("resources", {})
+
+    blocking = resources.get("renderBlockingResources", [])
+    count = len(blocking) if blocking else (
+        resources.get("renderBlockingScriptCount", 0) + resources.get("blockingCSSCount", 0)
+    )
+
+    if count > 3:
+        findings.append({
+            "id": "EXCESSIVE_RENDER_BLOCKING",
+            "severity": "moderate",
+            "title": f"{count} render-blocking resources in <head>",
+            "detail": (
+                f"Found {count} resources that block rendering: scripts without async/defer "
+                "and stylesheets without a limiting media attribute. Each blocks the browser "
+                "from rendering content until it's downloaded and parsed. This increases the "
+                "element render delay subpart of LCP. Consider adding async/defer to scripts "
+                "and using media queries on non-critical stylesheets."
+            ),
+            "page": url,
+        })
+    return findings
+
+
+def check_lcp_trace(page, all_pages):
+    """Homepage LCP trace results — flag poor/needs-improvement ratings."""
+    findings = []
+    url = page.get("url", "unknown")
+
+    if not _is_homepage(url):
+        return findings
+
+    trace = page.get("lcpTrace")
+    if not trace:
+        return findings
+
+    rating = trace.get("rating", "")
+    total = trace.get("totalLcp", 0)
+    bottleneck = trace.get("bottleneck", "unknown")
+
+    bottleneck_labels = {
+        "ttfb": "Time to First Byte (server response time)",
+        "resourceLoadDelay": "Resource Load Delay (browser didn't start loading the LCP resource quickly enough)",
+        "resourceLoadDuration": "Resource Load Duration (the LCP resource file is too large or server is slow)",
+        "elementRenderDelay": "Element Render Delay (resource downloaded but rendering was blocked)",
+    }
+    bottleneck_desc = bottleneck_labels.get(bottleneck, bottleneck)
+
+    if rating == "poor":
+        findings.append({
+            "id": "LCP_POOR",
+            "severity": "critical",
+            "title": f"LCP is {total:.1f}s (poor — target: ≤2.5s)",
+            "detail": (
+                f"The homepage Largest Contentful Paint is {total:.1f} seconds, rated 'poor' "
+                f"by Core Web Vitals standards (>4.0s). The primary bottleneck is: "
+                f"{bottleneck_desc}. This directly impacts search ranking and user experience."
+            ),
+            "page": url,
+        })
+    elif rating == "needs-improvement":
+        findings.append({
+            "id": "LCP_NEEDS_IMPROVEMENT",
+            "severity": "moderate",
+            "title": f"LCP is {total:.1f}s (needs improvement — target: ≤2.5s)",
+            "detail": (
+                f"The homepage LCP is {total:.1f} seconds, between 2.5s and 4.0s. "
+                f"The primary bottleneck is: {bottleneck_desc}. "
+                f"Optimizing this subpart would bring LCP into the 'good' range."
+            ),
+            "page": url,
+        })
+
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Cross-page checks
 # ---------------------------------------------------------------------------
@@ -1403,6 +1563,11 @@ PER_PAGE_CHECKS = [
     check_html_lang,
     check_render_blocking,
     check_broken_anchors,
+    check_lcp_lazy,           # NEW
+    check_lcp_fetchpriority,  # NEW
+    check_lcp_preload,        # NEW
+    check_render_blocking_count,  # NEW
+    check_lcp_trace,          # NEW
 ]
 
 CROSS_PAGE_CHECKS = [
